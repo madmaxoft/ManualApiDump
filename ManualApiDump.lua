@@ -34,7 +34,8 @@ local function serializeSimpleTable(a_Table, a_Indent)
 	local idx = 1
 	for _, key in ipairs(keys) do
 		local v = a_Table[key]
-		if (type(v) == "table") then
+		local vt = type(v)
+		if (vt == "table") then
 			if not(allKeysAreNumbers) then
 				lines[idx] = indent .. key .. " ="
 				idx = idx + 1
@@ -44,11 +45,15 @@ local function serializeSimpleTable(a_Table, a_Indent)
 			lines[idx + 2] = indent .. "},"
 			idx = idx + 3
 		elseif (
-			(type(v) == "number") or
-			(type(v) == "string") or
-			(type(v) == "boolean")
+			(vt == "number") or
+			(vt == "boolean")
 		) then
-			lines[idx] = string.format("%s%s = %q", indent, key, tostring(v))
+			-- Numbers and bools have a safe "tostring" function
+			lines[idx] = string.format("%s%s = %s,", indent, key, tostring(v))
+			idx = idx + 1
+		elseif (vt == "string") then
+			-- Use a special format for strings: %q includes the quotes and escapes as needed
+			lines[idx] = string.format("%s%s = %q,", indent, key, tostring(v))
 			idx = idx + 1
 		else
 			error("Unsupported value type in table to serialize: " .. type(v))
@@ -307,6 +312,8 @@ local function diffClass(a_ClassAutoAPI, a_ClassDesc, a_ApiDesc)
 					{
 						Params = guessParamTypes(signature.Params, a_ApiDesc),
 						Returns = guessParamTypes(signature.Return, a_ApiDesc),
+						IsStatic = signature.IsStatic,
+						IsGlobal = signature.IsGlobal,
 					}
 				)
 			end  -- for - signatures[]
@@ -399,6 +406,12 @@ local function dumpManualSymbols(a_AutoApi, a_ApiDesc)
 	local f = assert(io.open("ManualAPI.lua", "w"))
 	f:write("return\n{", serializeSimpleTable(diff, "\t"), "\n}\n")
 	f:close()
+
+	-- Check that the produced file is valid, by loading it:
+	local test = assert(loadfile("ManualAPI.lua"))
+	local sandbox = {}
+	setfenv(test, sandbox)
+	test()  -- Execute the file
 end
 
 
