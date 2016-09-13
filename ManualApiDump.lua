@@ -311,7 +311,7 @@ local function diffClass(a_ClassAutoAPI, a_ClassDesc, a_ApiDesc)
 				table.insert(fnDiff,
 					{
 						Params = guessParamTypes(signature.Params, a_ApiDesc),
-						Returns = guessParamTypes(signature.Return, a_ApiDesc),
+						Returns = guessParamTypes(signature.Returns, a_ApiDesc),
 						IsStatic = signature.IsStatic,
 						IsGlobal = signature.IsGlobal,
 					}
