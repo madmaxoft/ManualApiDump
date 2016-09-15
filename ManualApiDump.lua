@@ -27,13 +27,22 @@ local function serializeSimpleTable(a_Table, a_Indent)
 		end
 		table.insert(keys, k)
 	end
-	table.sort(keys)
+	local sortFn
+	if not(allKeysAreNumbers) then
+		sortFn = function (a_Key1, a_Key2)
+			return (tostring(a_Key1) < tostring(a_Key2))
+		end
+	end
+	table.sort(keys, sortFn)
 
 	-- Output the keys:
 	local lines = {}
 	local idx = 1
 	for _, key in ipairs(keys) do
 		local v = a_Table[key]
+		if (type(key) == "number") then
+			key = "[" .. tostring(key) .. "]"
+		end
 		local vt = type(v)
 		if (vt == "table") then
 			if not(allKeysAreNumbers) then
@@ -111,8 +120,11 @@ local function loadApiDesc(a_ApiDumpPath)
 			end
 		end
 	end
+
+	-- Move Globals into a separate namespace:
 	res.Globals = res.Classes.Globals
 	res.Classes.Globals = nil
+	res.Globals.ClassName = "Globals"
 
 	return res
 end
@@ -278,7 +290,10 @@ local function guessParamTypes(a_Params, a_ApiDesc)
 		-- The new style of documentation, all params are described properly, just copy the table to output:
 		local params = {}
 		for idx, v in ipairs(a_Params) do
-			params[idx] = { Type = v.Type }
+			params[idx] = { }
+			for paramK, paramV in pairs(v) do
+				params[idx][paramK] = paramV
+			end
 		end
 		return params
 	end
@@ -301,24 +316,27 @@ local function diffClass(a_ClassAutoAPI, a_ClassDesc, a_ApiDesc)
 
 	-- Diff the functions:
 	local autoFunctions = a_ClassAutoAPI.Functions or {}
-	local res = { Functions = {} }
+	local res =
+	{
+		Functions = {},
+	}
 	for fnName, fnDesc in pairs(a_ClassDesc.Functions or {}) do
 		if not(autoFunctions[fnName]) then
 			local fnDiff = {}
 			res.Functions[fnName] = fnDiff
 			local signatures = fnDesc[1] and fnDesc or {fnDesc}  -- Normalize the signatures to always be an array-table
-			for _, signature in ipairs(signatures) do
-				table.insert(fnDiff,
-					{
-						Params = guessParamTypes(signature.Params, a_ApiDesc),
-						Returns = guessParamTypes(signature.Returns, a_ApiDesc),
-						IsStatic = signature.IsStatic,
-						IsGlobal = signature.IsGlobal,
-					}
-				)
+			for idx, signature in ipairs(signatures) do
+				fnDiff[idx] =
+				{
+					Params = guessParamTypes(signature.Params, a_ApiDesc),
+					Returns = guessParamTypes(signature.Returns, a_ApiDesc),
+					IsStatic = signature.IsStatic,
+					IsGlobal = signature.IsGlobal,
+				}
 			end  -- for - signatures[]
 		end  -- if not in AutoAPI
 	end  -- for fnName, fnDesc
+
 	return res
 end
 
@@ -371,10 +389,82 @@ local function diffApi(a_AutoApi, a_ApiDesc)
 		res.Classes[className] = diffClass(classAutoApi, classDesc, a_ApiDesc)
 	end
 
-	-- Prune empty tables within the result:
-	pruneEmptySubTables(res)
-
 	return res
+end
+
+
+
+
+
+--- Returns the type of the object
+-- Recognizes Cuberite types (via tolua.type()) and returns those instead of "userdata"
+-- If the object is nil, returns a nil
+local function typeOf(a_Object)
+	local objType = type(a_Object)
+	if (objType == "userdata") then
+		return tolua.type(a_Object)
+	end
+	if (objType == "nil") then
+		return nil
+	end
+	return objType
+end
+
+
+
+
+
+--- Adds the class' constants and variables into the output
+-- a_Class is the class table (such as _G.cPlugin)
+-- a_Output is the table which is to receive the Constants and Variables members specifying the symbols
+local function addConstantsAndVariables(a_Class, a_Output)
+	-- Check params:
+	assert(type(a_Class) == "table")
+	assert(type(a_Output) == "table")
+
+	a_Output.Variables = a_Output.Variables or {}
+	a_Output.Constants = a_Output.Constants or {}
+
+	-- Constants and variables are stored in the ".get" and ".set" class members as entries in the dictionary table.
+	-- Variables are in both, constants only in ".get".
+	local dotGet = a_Class[".get"]
+	if (dotGet and (type(dotGet) == "table")) then
+		local dotSet = a_Class[".set"] or {}
+		local classInstance
+		_, classInstance, __ = pcall(a_Class)
+		for symbolName, _ in pairs(dotGet) do
+			local desc = a_Output.Variables[symbolName] or a_Output.Constants[symbolName] or { Name = symbolName }
+			if (classInstance) then
+				desc.Type = typeOf(classInstance[symbolName])
+			end
+			if (dotSet[symbolName]) then
+				a_Output.Variables[symbolName] = desc
+			else
+				a_Output.Constants[symbolName] = desc
+				-- If the constant is of a primitive type, output its value as well:
+				local objType = desc.Type
+				if (
+					(objType == "string") or
+					(objType == "number") or
+					(objType == "boolean")
+				) then
+					desc.Value = classInstance[symbolName]
+				end
+			end
+		end
+	end
+
+	-- Add the directly accessible values in the class tables (such as sqlite3.OK), as variables:
+	for symbolName, symbolValue in pairs(a_Class) do
+		local st = type(symbolValue)
+		if (
+			(st == "string") or
+			(st == "number") or
+			(st == "boolean")
+		) then
+			a_Output.Variables[symbolName] = a_Output.Variables[symbolName] or { Type = st, Value = symbolValue }
+		end
+	end
 end
 
 
@@ -398,11 +488,22 @@ local function dumpManualSymbols(a_AutoApi, a_ApiDesc)
 	-- Calculate the diff - ApiDesc minus AutoAPI:
 	local diff = diffApi(a_AutoApi, a_ApiDesc)
 	if not(diff) then
-		LOG("No API diff to dump")
+		LOG("Failed to diff the API")
 		return
 	end
 
+	-- Add the constants and variables to the diff:
+	for className, _ in pairs(a_ApiDesc.Classes) do
+		local class = _G[className]
+		if (class) then
+			diff.Classes[className] = diff.Classes[className] or {}
+			addConstantsAndVariables(_G[className], diff.Classes[className])
+		end
+	end
+	addConstantsAndVariables(_G, diff.Globals)
+
 	-- Output the differences:
+	pruneEmptySubTables(diff)
 	local f = assert(io.open("ManualAPI.lua", "w"))
 	f:write("return\n{", serializeSimpleTable(diff, "\t"), "\n}\n")
 	f:close()
