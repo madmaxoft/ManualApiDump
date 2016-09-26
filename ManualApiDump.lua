@@ -430,28 +430,28 @@ local function addConstantsAndVariables(a_Class, a_Output)
 	local dotGet = a_Class[".get"]
 	if (dotGet and (type(dotGet) == "table")) then
 		local dotSet = a_Class[".set"] or {}
-		local classInstance
-		_, classInstance, __ = pcall(a_Class)
+		local res, classInstance = pcall(a_Class)  -- This works only for classes with Lua-accessible constructors
+		if not(res) then
+			classInstance = nil
+		end
 		for symbolName, _ in pairs(dotGet) do
 			local desc = a_Output.Variables[symbolName] or a_Output.Constants[symbolName] or { Name = symbolName }
-			if (classInstance) then
-				desc.Type = typeOf(classInstance[symbolName])
-			end
 			if (dotSet[symbolName]) then
+				-- It is a variable. Try to get its type:
+				if (classInstance) then
+					desc.Type = typeOf(classInstance[symbolName])
+				end
 				a_Output.Variables[symbolName] = desc
 			else
-				a_Output.Constants[symbolName] = desc
-				-- If the constant is of a primitive type, output its value as well:
-				local objType = desc.Type
-				if (
-					(objType == "string") or
-					(objType == "number") or
-					(objType == "boolean")
-				) then
-					desc.Value = classInstance[symbolName]
+				-- It is a constant. Try to get its value and type:
+				local isSuccess, value = pcall(dotGet[symbolName], a_Class)
+				if (isSuccess) then
+					desc.Type = typeOf(value)
+					desc.Value = value
 				end
+				a_Output.Constants[symbolName] = desc
 			end
-		end
+		end  -- for symbolName - dotGet[]
 	end
 
 	-- Add the directly accessible values in the class tables (such as sqlite3.OK), as variables:
