@@ -454,7 +454,7 @@ local function addConstantsAndVariables(a_Class, a_Output)
 		end  -- for symbolName - dotGet[]
 	end
 
-	-- Add the directly accessible values in the class tables (such as sqlite3.OK), as variables:
+	-- Add the directly accessible values in the class tables (such as sqlite3.OK), as constants:
 	for symbolName, symbolValue in pairs(a_Class) do
 		local st = type(symbolValue)
 		if (
@@ -462,8 +462,45 @@ local function addConstantsAndVariables(a_Class, a_Output)
 			(st == "number") or
 			(st == "boolean")
 		) then
-			a_Output.Variables[symbolName] = a_Output.Variables[symbolName] or { Type = st, Value = symbolValue }
+			a_Output.Constants[symbolName] = a_Output.Constants[symbolName] or { Type = st, Value = symbolValue }
 		end
+	end
+end
+
+
+
+
+
+--- Adds the class' enums (ConstantGroups) into the output
+-- a_Class is the class table (such as _G.cPlugin)
+-- a_Desc is the class description (from APIDesc)
+-- a_Output is the table which is to receive the Enums members specifying the symbols
+local function addEnums(a_Class, a_Desc, a_Output, a_ClassName)
+	-- Check params:
+	assert(type(a_Class) == "table")
+	assert(type(a_Desc) == "table")
+	assert(type(a_Output) == "table")
+
+	-- If there are no constant groups described, bail out:
+	if not(a_Desc.ConstantGroups) then
+		return
+	end
+
+	-- Insert lists of all constants matching the constant groups' description:
+	a_Output.Enums = {}
+	for enumName, enumDesc in pairs(a_Desc.ConstantGroups) do
+		if (type(enumDesc.Include) ~= "table") then
+			enumDesc.Include = { enumDesc.Include }
+		end
+		local values = {}
+		for symName, _ in pairs(a_Output.Constants) do
+			for _, inc in ipairs(enumDesc.Include) do
+				if (string.match(symName, inc)) then
+					table.insert(values, { Name = symName })
+				end
+			end
+		end
+		a_Output.Enums[enumName] = values
 	end
 end
 
@@ -492,15 +529,17 @@ local function dumpManualSymbols(a_AutoApi, a_ApiDesc)
 		return
 	end
 
-	-- Add the constants and variables to the diff:
-	for className, _ in pairs(a_ApiDesc.Classes) do
+	-- Add the enums, constants and variables to the diff:
+	for className, classDesc in pairs(a_ApiDesc.Classes) do
 		local class = _G[className]
 		if (class) then
 			diff.Classes[className] = diff.Classes[className] or {}
-			addConstantsAndVariables(_G[className], diff.Classes[className])
+			addConstantsAndVariables(class, diff.Classes[className])
+			addEnums(class, classDesc, diff.Classes[className], className)
 		end
 	end
 	addConstantsAndVariables(_G, diff.Globals)
+	addEnums(_G, a_ApiDesc.Globals.ConstantGroups, diff.Globals)
 
 	-- Output the differences:
 	pruneEmptySubTables(diff)
