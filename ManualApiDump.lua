@@ -475,7 +475,7 @@ end
 -- a_Class is the class table (such as _G.cPlugin)
 -- a_Desc is the class description (from APIDesc)
 -- a_Output is the table which is to receive the Enums members specifying the symbols
-local function addEnums(a_Class, a_Desc, a_Output, a_ClassName)
+local function addEnums(a_Class, a_Desc, a_Output)
 	-- Check params:
 	assert(type(a_Class) == "table")
 	assert(type(a_Desc) == "table")
@@ -535,16 +535,16 @@ local function dumpManualSymbols(a_AutoApi, a_ApiDesc)
 		if (class) then
 			diff.Classes[className] = diff.Classes[className] or {}
 			addConstantsAndVariables(class, diff.Classes[className])
-			addEnums(class, classDesc, diff.Classes[className], className)
+			addEnums(class, classDesc, diff.Classes[className])
 		end
 	end
 	addConstantsAndVariables(_G, diff.Globals)
-	addEnums(_G, a_ApiDesc.Globals.ConstantGroups, diff.Globals)
+	addEnums(_G, a_ApiDesc.Globals, diff.Globals)
 
 	-- Output the differences:
 	pruneEmptySubTables(diff)
 	local f = assert(io.open("ManualAPI.lua", "w"))
-	f:write("return\n{", serializeSimpleTable(diff, "\t"), "\n}\n")
+	f:write("return\n{\n", serializeSimpleTable(diff, "\t"), "\n}\n")
 	f:close()
 
 	-- Check that the produced file is valid, by loading it:

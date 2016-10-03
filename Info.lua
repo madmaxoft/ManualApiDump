@@ -17,7 +17,7 @@ g_PluginInfo =
 			Handler = HandleConsoleCmdManualApi,
 			Help = "Dumps the manually-exported API symbols to a file",
 			Alias = "ma",
-		}
+		},
 	},
 }
 
