@@ -78,7 +78,7 @@ end
 --- Loads the AutoAPI files (from BindingsProcessor.lua) into a single API description table
 -- Returns a table with Classes and Globals members, combining all the AutoAPI files into a single one
 local function loadAutoApi(a_AutoApiPath)
-	local autoApiPath = a_AutoApiPath or "../src/Bindings/docs"  -- Assume an in-place build
+	local autoApiPath = a_AutoApiPath or "BindingsDocs"  -- Assume a regular CI build with proper symlink setup
 	local autoApi = assert(dofile(autoApiPath .. "/_files.lua"))
 	local res =
 	{
